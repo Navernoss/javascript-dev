@@ -11,6 +11,7 @@ import { pathIncrement } from "../path-increment.ts";
 import { updateProgress } from "../update-progress.ts";
 import { trueCounter } from "../true-counter.ts";
 import { getUid } from "../get-uid.ts";
+import { getSubscription } from "../get-subscription.ts";
 
 const bot = new Bot(Deno.env.get("BOT_TOKEN") || "");
 
@@ -89,119 +90,166 @@ bot.on("callback_query:data", async (ctx) => {
       console.error(error);
       await ctx.reply("Произошла ошибка при получении вопроса.");
     }
+  } else if (callbackData === "pay") {
+    // Отправляем инвойс
+    await ctx.replyWithInvoice(
+      "Подписка на курс", // title
+      "Описание подписки на курс", // description
+      "unique_payload", // payload
+      "PROVIDER_TOKEN", // provider_token
+      "RUB", // currency
+      [
+        { label: "Подписка", amount: 10000 }, // prices
+      ],
+    );
   } else if (callbackData.startsWith("javascript_")) {
-    const [language, lesson, subtopic, answer] = callbackData.split("_");
-    let questions;
-    if (!isNaN(Number(lesson)) && !isNaN(Number(subtopic))) {
-      // Значения корректны, вызываем функцию.
-      questions = await getQuestion({
-        lesson_number: Number(lesson),
-        subtopic: Number(subtopic),
+    if (callbackData === "javascript_02_04") {
+      const isSubscription = await getSubscription({
+        telegram_id: ctx.callbackQuery.from.id,
       });
+      if (!isSubscription) {
+        ctx.reply(
+          `Для продолжения теста, нужно оплатить подписку. 🖥️✨ `,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Оплатить подписку!", callback_data: "pay" }],
+              ],
+            },
+          },
+        );
+      }
     } else {
-      // Одно из значений некорректно, обрабатываем ошибку.
-      console.error(
-        "Одно из значений некорректно:",
-        lesson,
-        subtopic,
-        callbackData,
-      );
-      return;
-    }
-    const { correct_option_id } = questions[0];
-    let isTrueAnswer = null;
-    if (correct_option_id === Number(answer)) {
-      isTrueAnswer = true;
-    } else {
-      isTrueAnswer = false;
-    }
-    const biggestSubtopic = await getBiggest(Number(lesson));
-    const ifSubtopic = biggestSubtopic === Number(subtopic) ? false : true;
-    const newPath = pathIncrement({
-      isSubtopic: ifSubtopic,
-      path: callbackData.slice(0, -2),
-    });
-    const [newLanguage, newLesson, newSubtopic] = newPath.split("_");
-    let newQuestions;
-    if (!isNaN(Number(newLesson)) && !isNaN(Number(newSubtopic))) {
-      // Значения корректны, вызываем функцию.
-      newQuestions = await getQuestion({
-        lesson_number: Number(newLesson),
-        subtopic: Number(newSubtopic),
-      });
-    } else {
-      // Одно из значений некорректно, обрабатываем ошибку.
-      console.error(
-        "Одно из значений некорректно:",
-        newLesson,
-        newSubtopic,
-        callbackData,
-      );
-      await ctx.reply("Произошла ошибка при получении нового вопроса.");
-      return;
-    }
-
-    const user_id = await getUid(ctx.callbackQuery.from.username || "");
-    if (!user_id) {
-      await ctx.reply("Пользователь не найден.");
-      return;
-    }
-    await updateProgress({
-      user_id: user_id,
-      isTrue: isTrueAnswer,
-      path: `${language}_${lesson}_${subtopic}`,
-    });
-    const trueCount = await trueCounter(user_id);
-    if (newQuestions.length > 0) {
-      const {
-        topic,
-        question,
-        variant_0,
-        variant_1,
-        variant_2,
-        image_lesson_url,
-        id,
-      } = newQuestions[0];
-
-      if (newPath === "javascript_30_01") {
-        await ctx.replyWithPhoto(image_lesson_url, {
-          caption:
-            `Поздравляем! Вы прошли тест по JavaScript. Ваш счёт: ${trueCount}XP`,
-          parse_mode: "HTML",
+      const [language, lesson, subtopic, answer] = callbackData.split("_");
+      let questions;
+      if (!isNaN(Number(lesson)) && !isNaN(Number(subtopic))) {
+        // Значения корректны, вызываем функцию.
+        questions = await getQuestion({
+          lesson_number: Number(lesson),
+          subtopic: Number(subtopic),
         });
+      } else {
+        // Одно из значений некорректно, обрабатываем ошибку.
+        console.error(
+          "Одно из значений некорректно:",
+          lesson,
+          subtopic,
+          callbackData,
+        );
+        return;
+      }
+      const { correct_option_id } = questions[0];
+      let isTrueAnswer = null;
+      if (correct_option_id === Number(answer)) {
+        isTrueAnswer = true;
+      } else {
+        isTrueAnswer = false;
+      }
+      const biggestSubtopic = await getBiggest(Number(lesson));
+      const ifSubtopic = biggestSubtopic === Number(subtopic) ? false : true;
+      const newPath = pathIncrement({
+        isSubtopic: ifSubtopic,
+        path: callbackData.slice(0, -2),
+      });
+      const [newLanguage, newLesson, newSubtopic] = newPath.split("_");
+      let newQuestions;
+      if (!isNaN(Number(newLesson)) && !isNaN(Number(newSubtopic))) {
+        // Значения корректны, вызываем функцию.
+        newQuestions = await getQuestion({
+          lesson_number: Number(newLesson),
+          subtopic: Number(newSubtopic),
+        });
+      } else {
+        // Одно из значений некорректно, обрабатываем ошибку.
+        console.error(
+          "Одно из значений некорректно:",
+          newLesson,
+          newSubtopic,
+          callbackData,
+        );
+        await ctx.reply("Произошла ошибка при получении нового вопроса.");
         return;
       }
 
-      // Формируем сообщение
-      const messageText =
-        `${topic}\n\n<i><u>Теперь мы предлагаем вам закрепить полученные знания:</u></i>\n\n<b>Вопрос №${id}</b>\n\n${question}\n\n<b>🎯 Ваш счёт: ${trueCount}XP </b>`;
-
-      // Формируем кнопки
-      const inlineKeyboard = [
-        [{
-          text: variant_0 || "Вариант 1",
-          callback_data: `${newPath}_0`,
-        }],
-        [{
-          text: variant_1 || "Вариант 2",
-          callback_data: `${newPath}_1`,
-        }],
-        [{
-          text: variant_2 || "Не знаю",
-          callback_data: `${newPath}_2`,
-        }],
-      ];
-      // Отправляем сообщение
-      await ctx.replyWithPhoto(image_lesson_url, {
-        caption: messageText,
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: inlineKeyboard },
+      const user_id = await getUid(ctx.callbackQuery.from.username || "");
+      if (!user_id) {
+        await ctx.reply("Пользователь не найден.");
+        return;
+      }
+      await updateProgress({
+        user_id: user_id,
+        isTrue: isTrueAnswer,
+        path: `${language}_${lesson}_${subtopic}`,
       });
-      return;
+      const trueCount = await trueCounter(user_id);
+      if (newQuestions.length > 0) {
+        const {
+          topic,
+          question,
+          variant_0,
+          variant_1,
+          variant_2,
+          image_lesson_url,
+          id,
+        } = newQuestions[0];
+
+        if (newPath === "javascript_30_01") {
+          await ctx.replyWithPhoto(image_lesson_url, {
+            caption:
+              `Поздравляем! Вы прошли тест по JavaScript. Ваш счёт: ${trueCount}XP`,
+            parse_mode: "HTML",
+          });
+          return;
+        }
+
+        // Формируем сообщение
+        const messageText =
+          `${topic}\n\n<i><u>Теперь мы предлагаем вам закрепить полученные знания:</u></i>\n\n<b>Вопрос №${id}</b>\n\n${question}\n\n<b>🎯 Ваш счёт: ${trueCount}XP </b>`;
+
+        // Формируем кнопки
+        const inlineKeyboard = [
+          [{
+            text: variant_0 || "Вариант 1",
+            callback_data: `${newPath}_0`,
+          }],
+          [{
+            text: variant_1 || "Вариант 2",
+            callback_data: `${newPath}_1`,
+          }],
+          [{
+            text: variant_2 || "Не знаю",
+            callback_data: `${newPath}_2`,
+          }],
+        ];
+        // Отправляем сообщение
+        await ctx.replyWithPhoto(image_lesson_url, {
+          caption: messageText,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+        return;
+      }
     }
     ctx.reply(ctx.callbackQuery.data);
     return;
   }
+});
+
+// Обработка подтверждения оплаты
+bot.on("pre_checkout_query", async (ctx) => {
+  await ctx.answerPreCheckoutQuery(true); // Подтверждаем оплату
+});
+
+// Обработка успешной оплаты
+bot.on(":successful_payment", async (ctx) => {
+  // Отправляем сообщение с кнопкой для продолжения теста
+  await ctx.reply("Оплата прошла успешно! Можете продолжить тест.", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Продолжить тест", callback_data: "javascript_02_04" }],
+      ],
+    },
+  });
 });
 
 const handleUpdate = webhookCallback(bot, "std/http");
